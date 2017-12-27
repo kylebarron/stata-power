@@ -1196,14 +1196,14 @@ void function simci_parse_power(real rowvector results,
     stata("return scalar power_diff = r_power_diff")
 
     stopped = st_local("power_diffstr")
-    if ( abs(results[3]) < tol ) {
+    /* if ( abs(results[3]) < tol ) {
         stopped = stopped + " < " + strofreal(tol, "%9.4f")
     }
     else {
         stopped = stopped + "; no further improvements after "
         stopped = stopped + strofreal(st_numscalar("r_iter"), "%9.0f") + " iterations."
         st_local("increase", "Consider increasing the # of repetitions!")
-    }
+    } */
     st_local("stopped", stopped)
 }
 end
