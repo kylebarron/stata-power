@@ -37,6 +37,7 @@ program power_reg, rclass
                                   ///   the variable's categories.
         nstrata(numlist)          /// Number of strata for each stratum
                                   ///
+        n(int -1)                 /// Sample size (by default inferred from data)
         Ptreat(real 0.5)          /// Proportion treated
         alpha(real 0.05)          /// Confidence level
         kappa(real 0.8)           /// Power level
@@ -209,7 +210,12 @@ program power_reg, rclass
     qui sum `depvar' if `touse'
     local var  = `r(Var)'
     local mean = `r(mean)'
-    local N    = `r(N)'
+    if `n' == -1 {
+        local N = `r(N)'
+    }
+    else {
+        local N = `n'
+    }
 
     * Get regression adjustment
     * -------------------------
@@ -392,7 +398,12 @@ program power_reg, rclass
     * ------
 
     qui count if `touse'
-    return scalar N          = `r(N)'
+    if (`n' != -1) {
+        return scalar N          = `n'
+    }
+    else {
+        return scalar N          = `r(N)'
+    }
     return scalar mean       = `mean'
     return scalar std        = `:di sqrt(`var')'
     return scalar rmse       = `rmse'
