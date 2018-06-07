@@ -3,6 +3,28 @@
 
 capture program drop power_reg
 program power_reg, rclass
+    /* """Power based on regression specification
+
+    Args:
+        varlist
+        cluster (varname): Grouping variable
+        rho (real): ICC [0 = compute it from data]
+        strata (numlist): Stratify by varlist
+            - Continuous: specify # of quantiles
+            - Categorical/dummy: specify '0' to use
+              the variable's categories.
+        nstrata (numlist): Number of strata for each stratum
+        Ptreat (real): Proportion treated
+        alpha (real): Confidence level
+        kappa (real): Power level
+        binary (bool): Binary variable adjustment
+        direction (str): Direction of MDE for binary variable
+        icccontrol (str): Variable control for icc
+        pcteffect (numlist): % effect for sample size
+        abseffect (numlist): Absolute effect for sample size
+        usestata (bool): Use Stata's built-in power command
+
+    """ */
     version 13.1
 	syntax varlist(numeric ts fv) /// dependent_var covariates
            [if] [in] ,            /// subset
@@ -387,11 +409,17 @@ program power_reg, rclass
     }
 end
 
-* Get variance inflation factor (VIF)
-* -----------------------------------
-
 capture program drop get_vif
 program get_vif, rclass sortpreserve
+    /* """Get variance inflation factor (VIF)
+
+    Args:
+        varname
+        cluster (str)
+        rho (real)
+        control (str)
+
+    """ */
     syntax varname [if] [in], cluster(str) [rho(real 0) control(str)]
 
     marksample touse
@@ -429,11 +457,16 @@ program get_vif, rclass sortpreserve
     return scalar sn  = `sn'
 end
 
-* Get intra-cluster correlation (ICC, rho)
-* ----------------------------------------
-
 capture program drop get_rho
 program get_rho, rclass sortpreserve
+    /* """Get intra-cluster correlation (ICC, rho)
+
+    Args:
+        varname
+        cluster (str)
+        control (str)
+
+    """ */
     syntax varname [if] [in], cluster(str) [control(str)]
     marksample touse
     markout `touse' `cluster', strok
@@ -493,12 +526,59 @@ program get_rho, rclass sortpreserve
     return scalar rho = `rho'
 end
 
-* Get minimum detectable effect (MDE)
-* -----------------------------------
-
 cap program drop get_mde
 program get_mde, rclass
-    syntax anything, [   /// var mean_treat mean_control
+    /* """Get minimum detectable effect (MDE)
+
+    For a continuous outcome, power is given by
+
+        MDE = (z_α + z_(1 - κ)) * √σy / (N * P * (1 - P))
+
+    where z are the quantiles of the normal distribution corresponding
+    to α, 1 - κ the probability of Type I and Type II error,
+    respectively. If Y is binary, σy becomes
+
+        σy = μy * (1 - μy) * P + μt * (1 - μt) * (1 - P)
+        μt = μy + MDE
+
+    MDE then solves the quadratic equation that is defined by replacing
+    σy in the first squation. Note that in this case MDE is asymetric,
+    as it has an uneven impact on the variance determined by whether MDE
+    is positive or negative. `direction` specifies the direction of the
+    effect. Last, with clustering
+
+        vif     = 1 + ρ * ((cv^2 + 1) * μn - 1)
+        MDEclus = MDE * √vif
+
+    Where cv = 0 if eqsize = true. The user can specify vif and μn with
+    cluster = false and the same adjustment will be applied.
+
+    # Sources
+    - Kong, S.-H., Ahn, C. W., and Jung, S.-H. (2003). Sample Size
+      Calculation for Dichotomous Outcomes in Cluster Randomization
+      Trials with Varying Cluster Size. _Drug Information Journal_,
+      37(1):109–114.
+    - Manatunga, A. K., Hudgens, M. G., and Chen, S. (2001). Sample Size
+      Estimation in Cluster Randomized Studies with Varying Cluster
+      Size. _Biometrical Journal_, 43(1):75–86.
+
+    Args:
+        anything: var N mean
+        Ptreat (real): Proportion treated
+        alpha (real): Confidence level
+        kappa (real): Power level
+        rho (real 0): ICC
+        cv (real 0): Coefficient of variation, sigma_n / mu_n
+        mn (real 1): mu_n
+        vif (real 1): Variance Inflation Factor (or design effect)
+        cluster (bool): Cluster adjustment using rho, cv, mn
+        binary (bool): Whether to treat the outcome as binary
+        unequalclus (bool): Unequal-cluster adjustment
+        UPPERbound (bool): Assume variance is 0.25 for binary variable
+        direction (str): How to adjust MDE
+
+    """ */
+    syntax anything, [   /// var N mean_control
         Ptreat(real 0.5) /// Proportion treated
         alpha(real 0.05) /// Confidence level
         kappa(real 0.8)  /// Power level
@@ -518,43 +598,7 @@ program get_mde, rclass
     local N    = `2'
     local mean = `3'
 
-    **
-     * # Formulas
-     *
-     * For a continuous outcome, power is given by
-     *
-     *     MDE = (z_α + z_(1 - κ)) * √σy / (N * P * (1 - P))
-     *
-     * where z are the quantiles of the normal distribution corresponding
-     * to α, 1 - κ the probability of Type I and Type II error,
-     * respectively. If Y is binary, σy becomes
-     *
-     *     σy = μy * (1 - μy) * P + μt * (1 - μt) * (1 - P)
-     *     μt = μy + MDE
-     *
-     * MDE then solves the quadratic equation that is defined by replacing
-     * σy in the first squation. Note that in this case MDE is asymetric,
-     * as it has an uneven impact on the variance determined by whether MDE
-     * is positive or negative. `direction` specifies the direction of the
-     * effect. Last, with clustering
-     *
-     *     vif     = 1 + ρ * ((cv^2 + 1) * μn - 1)
-     *     MDEclus = MDE * √vif
-     *
-     * Where cv = 0 if eqsize = true. The user can specify vif and μn with
-     * cluster = false and the same adjustment will be applied.
-     *
-     * # Sources
-     * - Kong, S.-H., Ahn, C. W., and Jung, S.-H. (2003). Sample Size
-     *   Calculation for Dichotomous Outcomes in Cluster Randomization
-     *   Trials with Varying Cluster Size. _Drug Information Journal_,
-     *   37(1):109–114.
-     * - Manatunga, A. K., Hudgens, M. G., and Chen, S. (2001). Sample Size
-     *   Estimation in Cluster Randomized Studies with Varying Cluster
-     *   Size. _Biometrical Journal_, 43(1):75–86.
-     **
-
-     local t = abs(invnormal(`alpha' / 2) + invnormal(1 - `kappa'))
+    local t = abs(invnormal(`alpha' / 2) + invnormal(1 - `kappa'))
 
     * Adjust for clusters
     if ("`cluster'" != "") {
@@ -586,18 +630,57 @@ program get_mde, rclass
     return scalar mde = `MDE'
 end
 
-* Get sample size (N)
-* -------------------
-
 cap program drop get_sampsi
 program get_sampsi, rclass
+    /* """Get sample size (N)
+
+    For a continuous outcome, power is given by
+
+        N = σy * ((z_α + z_(1 - κ)) / (μt - μc))^2 / (P * (1 - P))
+
+    where z are the quantiles of the normal distribution corresponding
+    to α, 1 - κ the probability of Type I and Type II error,
+    respectively. If Y is binary, σy becomes
+
+        σy = μc * (1 - μc) * P + μt * (1 - μt) * (1 - P)
+
+    If there is clustering, then
+
+        vif   = 1 + ρ * ((cv^2 + 1) * μn - 1)
+        Nclus = N * vif / μn
+
+    Where cv = 0 if eqsize = true. The user can specify vif and μn with
+    cluster = false and the same adjustment will be applied.
+
+    # Sources
+    - Kong, S.-H., Ahn, C. W., and Jung, S.-H. (2003). Sample Size
+      Calculation for Dichotomous Outcomes in Cluster Randomization
+      Trials with Varying Cluster Size. _Drug Information Journal_,
+      37(1):109–114.
+    - Manatunga, A. K., Hudgens, M. G., and Chen, S. (2001). Sample Size
+      Estimation in Cluster Randomized Studies with Varying Cluster
+      Size. _Biometrical Journal_, 43(1):75–86.
+
+    Args:
+        Ptreat (real): Proportion treated
+        alpha (real): Confidence level
+        kappa (real): Power level
+        rho (real): ICC
+        cv (real): Coefficient of variation, sigma_n / mu_n
+        mn (real): mu_n
+        vif (real): Variance Inflation Factor
+        cluster (bool): Cluster adjustment using rho, cv, mn
+        binary (bool): Whether to treat the outcome as binary
+        unequalclus (bool): Unequal-cluster adjustment
+
+    """ */
     syntax anything, [   /// var mean_treat mean_control
         Ptreat(real 0.5) /// Proportion treated
         alpha(real 0.05) /// Confidence level
         kappa(real 0.8)  /// Power level
         rho(real 0)      /// ICC
-        cv(real 0)       /// Proportion treated
-        mn(real 1)       /// Proportion treated
+        cv(real 0)       /// Coefficient of variation, sigma_n / mu_n
+        mn(real 1)       /// mu_n
         vif(real 1)      /// Variance Inflation Factor
         cluster          /// Cluster adjustment using rho, cv, mn
         binary           /// Whether to treat the outcome as binary
@@ -609,38 +692,7 @@ program get_sampsi, rclass
     local mt  = `2'
     local mc  = `3'
 
-    **
-     * # Formulas
-     *
-     * For a continuous outcome, power is given by
-     *
-     *     N = σy * ((z_α + z_(1 - κ)) / (μt - μc))^2 / (P * (1 - P))
-     *
-     * where z are the quantiles of the normal distribution corresponding
-     * to α, 1 - κ the probability of Type I and Type II error,
-     * respectively. If Y is binary, σy becomes
-     *
-     *     σy = μc * (1 - μc) * P + μt * (1 - μt) * (1 - P)
-     *
-     * If there is clustering, then
-     *
-     *     vif   = 1 + ρ * ((cv^2 + 1) * μn - 1)
-     *     Nclus = N * vif / μn
-     *
-     * Where cv = 0 if eqsize = true. The user can specify vif and μn with
-     * cluster = false and the same adjustment will be applied.
-     *
-     * # Sources
-     * - Kong, S.-H., Ahn, C. W., and Jung, S.-H. (2003). Sample Size
-     *   Calculation for Dichotomous Outcomes in Cluster Randomization
-     *   Trials with Varying Cluster Size. _Drug Information Journal_,
-     *   37(1):109–114.
-     * - Manatunga, A. K., Hudgens, M. G., and Chen, S. (2001). Sample Size
-     *   Estimation in Cluster Randomized Studies with Varying Cluster
-     *   Size. _Biometrical Journal_, 43(1):75–86.
-     **
-
-     local t = invnormal(`alpha' / 2) + invnormal(1 - `kappa')
+    local t = invnormal(`alpha' / 2) + invnormal(1 - `kappa')
 
     * Adjust for proportions model
     if ("`binary'" != "") {
