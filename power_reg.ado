@@ -23,13 +23,13 @@ program power_reg, rclass
         pcteffect (numlist): % effect for sample size
         abseffect (numlist): Absolute effect for sample size
         usestata (bool): Use Stata's built-in power command
-
+        verbose (bool): Print extra information to console
     """ */
     version 13.1
-	syntax varlist(numeric ts fv) /// dependent_var covariates
+    syntax varlist(numeric ts fv) /// dependent_var covariates
            [if] [in] ,            /// subset
-	[                             ///
-		cluster(varname)          /// Grouping variable
+    [                             ///
+        cluster(varname)          /// Grouping variable
         rho(real 0)               /// ICC [0 = compute it from data]
         strata(varlist)           /// Stratify by varlist
                                   /// - Continuous: specify # of quantiles
@@ -49,7 +49,8 @@ program power_reg, rclass
         abseffect(numlist)        /// Absolute effect for sample size
                                   ///
         usestata                  /// Use Stata's built-in power command
-	]
+        verbose                   /// Print extra information to console
+    ]
 
     * Parse varlist and sample to use
     * -------------------------------
@@ -60,7 +61,7 @@ program power_reg, rclass
     markout `touse' `strata', strok
     markout `touse' `cluster', strok
     markout `touse' `varlist'
-	_rmcoll `controls' if `touse', expand
+    _rmcoll `controls' if `touse', expand
     local controls `r(varlist)'
     gen byte `notouse' = !`touse'
 
@@ -220,6 +221,11 @@ program power_reg, rclass
     * Get regression adjustment
     * -------------------------
 
+    if ("`verbose'" == "verbose") {
+        di "Running regression adjustment"
+        di "`xi: reg `depvar' `controls' if `touse'`"
+    }
+
     qui xi: reg `depvar' `controls' if `touse'
     * local adjust = 1 - e(r2_a)
     local adjust = 1 - e(r2)
@@ -264,6 +270,12 @@ program power_reg, rclass
             local opts alpha(`alpha') power(`kappa') nratio(`nratio') sd(`rmse')
             local power power twomeans
         }
+
+        if ("`verbose'" == "verbose") {
+            di "Stata command:"
+            di "`qui `power' `mean', n(`N') `opts' `direction'`"
+        }
+
         qui `power' `mean', n(`N') `opts' `direction'
         local mde = `r(diff)'
 

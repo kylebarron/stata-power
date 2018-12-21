@@ -35,14 +35,14 @@ capture mata: mata drop simci_var()
 
 * TODO: "autostratify"? // 2016-09-23 14:43 EDT
 program simci, rclass sortpreserve
-	syntax varlist(numeric ts fv) /// dependent_var covariates
+    syntax varlist(numeric ts fv) /// dependent_var covariates
            [if] [in] ,            /// subset
-	[                             ///
+    [                             ///
         Ptreat(real 0.5)          /// Proportion treated
         alpha(real 0.05)          /// Confidence level
         reps(int 100)             /// Non-parametric repetitions
                                   ///
-		cluster(varname)          /// Grouping variable
+        cluster(varname)          /// Grouping variable
         forcestrata               /// Force stratification
         nstrata(numlist)          /// Number of strata for each var in varlist
         strata(varlist)           /// Stratify by varlist
@@ -53,14 +53,14 @@ program simci, rclass sortpreserve
         power(str)                /// Search for power
                                   ///
         fast                      /// Use C plugin for speed
-	]
+    ]
     local savelist `varlist'
 
     * Figure out what the function will output
-	if ( ("`effect'" != "") & ("`power'" != "") ) {
-		di as err "{p}options effect and power are mutually exclusive{p_end}"
-		exit 198
-	}
+    if ( ("`effect'" != "") & ("`power'" != "") ) {
+        di as err "{p}options effect and power are mutually exclusive{p_end}"
+        exit 198
+    }
     else if ( ("`effect'" != "") & ("`power'"  == "") ) local compute effect
     else if ( ("`effect'" == "") & ("`power'"  != "") ) local compute power
     else if ( ("`effect'" == "") & ("`power'"  == "") ) local compute ci
@@ -146,7 +146,7 @@ program simci, rclass sortpreserve
     markout `touse' `strata', strok
     markout `touse' `cluster', strok
     markout `touse' `varlist'
-	_rmcoll `controls' if `touse', expand
+    _rmcoll `controls' if `touse', expand
     local controls `r(varlist)'
     gen byte `notouse' = !`touse'
 
