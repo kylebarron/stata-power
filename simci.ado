@@ -35,6 +35,153 @@ capture mata: mata drop simci_var()
 
 * TODO: "autostratify"? // 2016-09-23 14:43 EDT
 program simci, rclass sortpreserve
+    /* """Simulate Power
+
+    #### Notes
+
+    The formulas and citations below only justify the logic for when
+    `compute` is set to `"ci"`; inducing an effect and searching for
+    power is in beta. Use with caution.
+
+    #### Simulated CI
+
+    The idea is to simulate a non-parametric CI based on placebo
+    assignments of a treatment variable. The program assigns
+    treatment at random, hence a null effect, to individuals or
+    clusters, optionally stratifying by any number of variables (or
+    the means thereof, in the case of clusters). Consider
+
+    $$
+    Y_{ij} = a + b T_{j} + g X_{ij} + e_{ij}
+    $$
+
+    There are $C = \binom{J}{PJ}$ ways to treat the clusters (or $C = \binom{P}{PN}$
+    in the case of individuals). If we computed $\beta_{ols}$ for
+    $c = 1, ..., C$ we would know the exact distribution of our estimator,
+    conditional on the data being representative of the study data. $C$ is
+    typically intractably large, hence we simulate $K$ draws with
+    $\sum T_{jk} = PJ$ and run
+
+    $$
+    Y_ij = \alpha + \beta_k T_{jk} + \gamma X_{ij} + e_{ij}
+    $$
+
+    Let $\widehat{F}$ be the empirical CDF of $\beta_k$; a valid
+    $1 - \alpha$ CI for $\beta$ is given by
+
+    $$
+    \widehat{CI}_{1 - \alpha} = \left(\widehat{F}^{-1}(\alpha / 2), \widehat{F}^{-1}(1 - \alpha / 2)\right)
+    $$
+
+    Duflo et al. (2007) recommends this for clusters as the
+    regression will naturally take into account the correlation
+    structure of the data, but the logic is easy to extend to
+    individual-level randomization and stratified randomization.
+
+    #### Simulated power
+
+    The idea here is simple: Instead of inducing placebo assignments,
+    introduce an effect at each run of the randomization. Power is
+    then the average number of times the null is rejected (in this
+    case, we use the simulated CI from the previous section as our
+    rejection criterion). We conduct a search over various MDEs until
+    power is approximately the level we want.
+
+    #### Sources
+
+    - Duflo, E., Glennerster, R., and Kremer, M. (2007). Chapter
+      61 Using Randomization in Development Economics Research: A
+      Toolkit. In Handbook of Development Economics, volume 4, pages
+      3895–3962.
+
+    ### Arguments
+
+    - `varlist`: `dependent_var covariates`
+    - `[if]/[in]`
+
+    #### Options
+
+    - `Ptreat` (`real`): Proportion treated
+    - `alpha` (`real`): Confidence level
+    - `reps` (`int`): Non-parametric repetitions
+    - `cluster` (`varname`): Grouping variable
+    - `forcestrata` (`bool`): Force stratification
+    - `strata` (`varlist`): Stratify by varlist
+    - `nstrata` (`numlist`): Number of strata for each var in varlist
+
+        - Continuous: specify # of quantiles
+        - Categorical/dummy: specify `0` to use the variable's categories.
+
+    - `effect` (`string`): Induce artificial effect. String provided should be of the type:
+
+      ```stata
+      syntax, effect(real) [binary bounds(str)]
+      ```
+
+      - `effect` (`real`): Effect size
+      - `binary` (`bool`): If provided, calculate for binary dependent variable;
+        otherwise assume dependent variable is continuous
+      - `bounds` (`string`): must be empty, `auto`, or an upper and lower bound
+
+      An example argument to the main `simci` command is:
+
+      ```stata
+      simci ..., effect(effect(0.1))
+      ```
+
+    - `power` (`string`): Search for power. String provided should be of the type:
+
+      ```stata
+      syntax, DIRection(str) [kappa(real 0.8) binary tol(real 0) startat(real 0)]
+      ```
+
+      - `direction` (`string`): either `pos` or `neg`
+      - `kappa` (`real`): Value for power ($\kappa$). Must be $0 < \kappa < 1$
+      - `binary` (`bool`): If provided, calculate for binary dependent variable;
+        otherwise assume dependent variable is continuous
+      - `tol` (`real`): Tolerance level. By default is equal to `min(1e-2, 10 / `reps')`
+      - `startat` (`real`):
+
+      An example argument to the main `simci` command is:
+
+      ```stata
+      simci ..., power(kappa(0.8) direction(neg))
+      ```
+
+    - `fast`  (`bool`): Use C plugin for speed
+
+    ### Returns
+
+    #### scalars:
+
+    - `r(N)`: Number of observations in dataset
+    - `r(power_diff)`: `r(power)` - 0.8
+    - `r(power)`: Calculated power
+    - `r(mde)`: Minimum detectable effect
+    - `r(nt)`: Number of observations treated
+    - `r(iter)`: Number of iterations
+    - `r(upper)`: Upper confidence interval
+    - `r(lower)`: Lower confidence interval
+    - `r(upper_pct)`: Upper confidence interval / $\mu$
+    - `r(lower_pct)`: Lower confidence interval / $\mu$
+    - `r(b_sd)`: Standard deviation of $\beta$
+    - `r(b)`: $\beta$
+    - `r(mu_sd)`: Standard deviation of $\mu$
+    - `r(mu)`: $\mu$
+
+    #### matrices:
+
+    - `r(simci)`: 1 x 8
+        1. `r(nt)`
+        2. `r(mu)`
+        3. `r(b)`
+        4. `r(b_sd)`
+        5. `r(lower)`
+        6. `r(lower_pct)`
+        7. `r(upper)`
+        8. `r(upper_pct)`
+
+    """ */
     syntax varlist(numeric ts fv) /// dependent_var covariates
            [if] [in] ,            /// subset
     [                             ///
@@ -83,59 +230,6 @@ program simci, rclass sortpreserve
     }
 
     local varlist `savelist'
-
-    **
-     * # Notes
-     *
-     * The formulas and citations below only justify the logic for when
-     * -compute- is set to 'ci'; inducing an effect and searching for
-     * power is in beta. Use with caution.
-     *
-     * # Simulated CI
-     *
-     * The idea is to simulate a non-parametric CI based on placebo
-     * assignments of a treatment variable. The program assigns
-     * treatment at random, hence a null effect, to individuals or
-     * clusters, optionally stratifying by any number of variables (or
-     * the means thereof, in the case of clusters). Consider
-     *
-     *     Y_ij = a + b T_j + g X_ij + e_ij
-     *
-     * There are C = J choose PJ ways to treat the clusters (or C =
-     * P choose PN in the case of individuals). If we computed b_ols
-     * for c = 1, ..., C we would know the exact distribution of our
-     * estimator, conditional on the data being representative of the
-     * study data. C is typically intractably large, hence we simulate
-     * K draws with sum(T_jk = PJ) and run
-     *
-     *     Y_ij = a + b_k T_jk + g X_ij + e_ij
-     *
-     * Let Fhat be the empirical cdf of b_k; a valid 1 - alpha CI for
-     * b is given by
-     *
-     *     CI(1 - a) = [Fhat^-1(a / 2), Fhat^-1(1 - a / 2)]
-     *
-     * Duflo et al. (2007) recommends this for clusters as the
-     * regression will naturally take into account the correlation
-     * structure of the data, but the logic is easy to extend to
-     * individual-level randomization and stratified randomization.
-     *
-     * # Simulated power
-     *
-     * The idea here is simple: Instead of inducing placebo assignments,
-     * introduce an effect at each run of the randomization. Power is
-     * then the average number of times the null is rejected (in this
-     * case, we use the simulated CI from the previous section as our
-     * rejection criterion). We conduct a search over various MDEs until
-     * power is approximately the level we want.
-     *
-     * # Sources
-     *
-     * - Duflo, E., Glennerster, R., and Kremer, M. (2007). Chapter
-     *   61 Using Randomization in Development Economics Research: A
-     *   Toolkit. In Handbook of Development Economics, volume 4, pages
-     *   3895–3962.
-     **
 
     * Parse varlist and sample to use
     * -------------------------------
