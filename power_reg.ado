@@ -24,11 +24,12 @@ program power_reg, rclass
         abseffect (numlist): Absolute effect for sample size
         usestata (bool): Use Stata's built-in power command
         verbose (bool): Print extra information to console
+        force_adjust (real): Force given regression adjustment (1-r^2)
     """ */
     version 13.1
     syntax varlist(numeric ts fv) /// dependent_var covariates
            [if] [in] ,            /// subset
-    [                             ///
+        [                         ///
         cluster(varname)          /// Grouping variable
         rho(real 0)               /// ICC [0 = compute it from data]
         strata(varlist)           /// Stratify by varlist
@@ -50,7 +51,8 @@ program power_reg, rclass
                                   ///
         usestata                  /// Use Stata's built-in power command
         verbose                   /// Print extra information to console
-    ]
+        force_adjust(real -1)     /// Force given regression adjustment (1-r^2)
+        ]
 
     * Parse varlist and sample to use
     * -------------------------------
@@ -228,7 +230,16 @@ program power_reg, rclass
 
     qui xi: reg `depvar' `controls' if `touse'
     * local adjust = 1 - e(r2_a)
-    local adjust = 1 - e(r2)
+    if (`force_adjust' != -1) {
+        if ((`force_adjust' < 0) | (`force_adjust' > 1)) {
+            di as err "force_adjust value must be between 0 and 1"
+            exit 1
+        }
+        local adjust = `force_adjust'
+    }
+    else {
+        local adjust = 1 - e(r2)
+    }
     local rmse   = e(rmse)
 
     * Adjust for clusters. We estimate ICC using ANOVA.
